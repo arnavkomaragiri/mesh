@@ -73,6 +73,7 @@ def init_network(api_key: str, host: str, port: int, alias: str, dim: int, colle
         "client": init_client(api_key),
         "graph": nx.Graph(),
         "id_map": {},
+        "deleted": [],
     }
     # load collection
     network['milvus_info']['collection'].load()
@@ -126,7 +127,7 @@ def close_network(network: Network, out_path: str):
 
 def add_entity(network: Network, node_id: Union[str, int], content: str, connected: List[Any] = [],
                file_path: Optional[str] = None) -> Network:
-    if node_id in network['graph']:
+    if node_id in network['graph'].nodes:
         raise ValueError(f"entity {node_id} already exists in graph")
     network['graph'].add_node(node_id)
 
@@ -163,6 +164,15 @@ def add_edge(network: Network, a: Union[int, str], b: Union[int, str]) -> Networ
     network['graph'].add_edge(a, b)
     network['graph'].nodes[a]['update'] = True
     network['graph'].nodes[b]['update'] = True
+    return network
+
+def remove_entity(network: Network, node_id: Union[int, str]) -> Network:
+    if node_id not in network['graph'].nodes:
+        raise ValueError(f"attempted to delete entity {node_id} not in graph")
+
+    del network['id_map'][str(hash(node_id))]
+    network['graph'].remove_node(node_id)
+    network['deleted'] += [node_id]
     return network
 
 def index_network(network: Network, depth: int) -> Network:
@@ -202,11 +212,13 @@ def index_network(network: Network, depth: int) -> Network:
             queue[1] += neighbors
         queue = queue[1:]
 
-    expr = f"id in {ids}"
+    expr = f"id in {ids + network['deleted']}"
     network['milvus_info']['collection'].delete(expr)
-    network['milvus_info']['collection'].insert([ids, vectors]) 
-    network['milvus_info']['collection'].flush()
+    if len(ids) != 0:
+        network['milvus_info']['collection'].insert([ids, vectors]) 
+        network['milvus_info']['collection'].flush()
     network['milvus_info']['collection'].load()
+    network['deleted'] = []
     return network
 
 def search_network(network: Network, nl_query: str, limit: int, search_params: Optional[Dict] = None) -> List[Dict]:
@@ -217,9 +229,5 @@ def search_network(network: Network, nl_query: str, limit: int, search_params: O
         }
     vec = query_embed(network['client'], 'embed-english-light-v2.0', nl_query).tolist()
     results = network['milvus_info']['collection'].search(vec, "embeddings", search_params, limit=limit, output_fields=["id"])
-    print(len(results))
-    print(type(results[0].ids))
-    print([hit.ids for hit in results])
     ids = [network['id_map'][str(hit.id)] for hit in results[0]]
-    print(ids)
     return [network['graph'].nodes[i] for i in ids]
