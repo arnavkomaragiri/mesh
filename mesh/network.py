@@ -5,6 +5,7 @@ import json
 import numpy as np
 import networkx as nx
 
+from tqdm import tqdm
 from pymilvus import (
     connections,
     utility,
@@ -14,8 +15,9 @@ from pymilvus import (
     Collection,
 )
 
-from cohere_handler import *
-from typing import Dict
+from mesh.handlers.cohere_handler import *
+from functools import reduce
+from typing import Union, List, Dict
 
 Network = Dict[str, Union[Dict, np.array, nx.Graph]]
 
@@ -175,14 +177,19 @@ def remove_entity(network: Network, node_id: Union[int, str]) -> Network:
     network['deleted'] += [node_id]
     return network
 
-def index_network(network: Network, depth: int) -> Network:
+def index_network(network: Network, depth: int, verbose: bool = False) -> Network:
     if depth < 0:
         raise ValueError(f"invalid update depth {depth}, depth must be > 0")
     queue = [[n for n in network['graph'].nodes if network['graph'].nodes[n]['update'] or 'vec' not in network['graph'].nodes[n]], []]
     ids = []
     vectors = []
     visited_set = set()
-    for _ in range(depth + 1):
+
+    iterator = range(depth + 1)
+    if verbose:
+        iterator = tqdm(iterator, total=len(iterator), unit="levels")
+
+    for _ in iterator:
         for node_id in queue[0]:
             node = network['graph'].nodes[node_id]
             if node_id in visited_set:
