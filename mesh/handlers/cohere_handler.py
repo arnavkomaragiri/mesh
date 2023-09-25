@@ -19,21 +19,6 @@ def build_cot_prompt(prompt: str, rules: List[str], context_str: Optional[str] =
     return "Rules:\n{rule_str}\nTask: {prompt}\n{output}: ".format(prompt=prompt, rule_str=reduce(lambda a, b: f'{a}\n{b}', rules),
                                                                    output=output_name)
 
-def build_chat_prompt(chatbot_context: str, rules: List[str], prompt: str, example: Optional[str] = None) -> str:
-    output_str = ""
-    if example is not None:
-        output_str = "{chatbot_context}\nRules:\n{rule_str}\nExample Output:\n{example}".format(
-            chatbot_context=chatbot_context,
-            rule_str=reduce(lambda a, b: f'{a}\n{b}', rules),
-            example=example
-        )
-    else:
-        output_str = "{chatbot_context}\nRules:\n{rule_str}\nExample Output:\n{example}".format(
-            chatbot_context=chatbot_context,
-            rule_str=reduce(lambda a, b: f'{a}\n{b}', rules)
-        )
-    return output_str + f"\nUser Input: {prompt}\nResponse:"
-
 def query_generate(client: cohere.Client, model: str, num_tokens: int, temperature: float, p: float,
                    prompt: str, rules: List[str], context_str: str, output_name: str = "Response",
                    **kwargs) -> str:
@@ -51,22 +36,24 @@ def query_generate(client: cohere.Client, model: str, num_tokens: int, temperatu
     # TODO: potentially integrate a reward model to do ranking of results from multiple traces
     return response.generations[0].text
 
-def query_chat(client: cohere.Client, model: str, question: str, chatbot_context: str, rules: List[str], example: Optional[str] = None) -> Dict[str, str]:
-    # build chat-specific prompt and run inference
-    chat_prompt = build_chat_prompt(chatbot_context, rules=[f"- {rule}" for rule in rules], prompt=question, example=example)
+def query_chat(client: cohere.Client, model: str, question: str, sources: List[Dict[str, str]] = [], 
+               search_queries_only: bool = False, use_web: bool = False) -> cohere.responses.Chat:
+    connectors = []
+    if use_web:
+        connectors = [{"id": "web-search"}]
+
     response = client.chat( 
         model=model,
-        message=chat_prompt,
+        message=question,
         temperature=0.3,
+        prompt_truncation="auto",
+        documents=sources,
+        search_queries_only=search_queries_only,
+        connectors=connectors
     ) 
 
-    # parse JSON response and return output
-    try:
-        output = json.loads(response.text)
-    except Exception as e:
-        raise ValueError(f"reached error when parsing JSON response:\nResponse:\n{response.txt}\nError:\n{e}")
-    return output
-
+    return response
+    
 def query_embed(client: cohere.Client, model: str, text: Union[str, List[str]]) -> np.array:
     # if we're embedding a single item, wrap it in a list
     if isinstance(text, str):
