@@ -1,5 +1,6 @@
 *.lock
 *.env
 *__pycache__
+.mesh/
 network_cache/
 volumes/
