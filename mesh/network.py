@@ -21,27 +21,12 @@ from typing import Union, List, Dict
 
 Network = Dict[str, Union[Dict, np.array, nx.Graph]]
 
-def get_entity_summary(client: cohere.Client, content: str, related: List[Dict], model: str, num_tokens: int, temperature: float, raw: bool = False, **kwargs) -> str:
-    if raw:
-        neighbor_summaries = [n.get('summary', '') for n in related]
-        summary = ""
-        if len(neighbor_summaries) != 0:
-            summary += "Context:\n" + reduce(lambda a, b: a + "\n" + b, neighbor_summaries) + "\n"
-        return summary + "Content:\n" + content
-
-    prompt = "Generate a brief summary of the specified content while factoring in all of the provided context. Make sure to explain how the provided content connects to the quoted contexts. Only use information provided in the above content, do not generate your own information. Do not repeat sentences or get caught in loops."
-    rules = ["Be honest and clear as possible, do not hallucinate information and do not cite information not explicitly mentioned",
-             "Be as concise as possible, you are generating text for individuals with a low attention span",
-             "Capture the core concepts of the specified content while avoiding unnecessary words",
-             "Use the specified context to inform the summarization process; the content given exists within a larger graph structure",
-             "The <DOCUMENT> tag corresponds to where the specified content exists within the larger data structure"]
-    context_str = ""
-    if len(related) > 0:
-        context_str = reduce(lambda a, b: f'{a}\n{b}', [f"- {entity['summary']}" for entity in related if 'summary' in entity])
-    context_str += "\nContent:\n"
-    context_str += f"'''\n{content}\n'''"
-    return query_generate(client, model, num_tokens, temperature, 
-                          prompt=prompt, rules=rules, context_str=context_str, output_name="Summary", **kwargs)
+def get_entity_summary(client: cohere.Client, content: str, related: List[Dict], model: str, temperature: float) -> str:
+    related_summaries = [entity['summary'] for entity in related]
+    summarize_prompt = build_summarize_prompt(content, related_summaries) 
+    if len(summarize_prompt) < 250:
+        return summarize_prompt
+    return query_summary(client, model, content, temperature, related_summaries)
 
 def init_network(api_key: str, host: str, port: int, alias: str, dim: int, collection_str: str = "data") -> Network:
     # connect to milvus and check if we're making a new collection
@@ -104,9 +89,9 @@ def open_network(api_key: str, path: str) -> Network:
 
 def delete_network(network: Network):
     collection_name = network['milvus_info']['collection_str']
-    if not utility.has_collection(collection_name):
+    if not utility.has_collection(collection_name, using=network['milvus_info']['alias']):
         raise ValueError(f"attempted to delete non-existent collection {collection_name}")
-    utility.drop_collection(collection_name)
+    utility.drop_collection(collection_name, using=network['milvus_info']['alias'])
 
 def close_network(network: Network, out_path: str):
     # close milvus/cohere connection
@@ -128,7 +113,7 @@ def close_network(network: Network, out_path: str):
         json.dump(network, f)
 
 def add_entity(network: Network, node_id: Union[str, int], content: str, connected: List[Any] = [],
-               file_path: Optional[str] = None) -> Network:
+               file_path: Optional[str] = "") -> Network:
     if node_id in network['graph'].nodes:
         raise ValueError(f"entity {node_id} already exists in graph")
     network['graph'].add_node(node_id)
@@ -145,11 +130,7 @@ def add_entity(network: Network, node_id: Union[str, int], content: str, connect
     if len(connected_nodes) > 0:
         network['graph'].add_edge(node_id, connected_nodes['id'])
         # TODO: build a settings type for LLM hyperparams (max tokens, temperature, top-p)
-        raw_summary = get_entity_summary(network['client'], content, connected_nodes, 'command', 500, 0.7, raw=True, p=0.95)
-        summary = get_entity_summary(network['client'], content, connected_nodes, 'command', 500, 0.7, p=0.95)
-
-        if len(summary) > len(raw_summary):
-            summary = raw_summary
+        summary = get_entity_summary(network['client'], content, connected_nodes, 'command', 0.3)
 
         network['graph'].nodes[node_id]['summary'] = summary
         for c in connected_nodes:
@@ -197,11 +178,7 @@ def index_network(network: Network, depth: int, verbose: bool = False) -> Networ
 
             neighbors = [network['graph'].nodes[i] for i in nx.neighbors(network['graph'], node_id) if i not in visited_set]
             if node['update']:
-                summary = get_entity_summary(network['client'], node['content'], neighbors, 'command', 500, 0.7, p=0.95)
-                raw_summary = get_entity_summary(network['client'], node['content'], neighbors, 'command', 500, 0.7, raw=True, p=0.95)
-
-                if len(summary) > len(raw_summary):
-                    summary = raw_summary
+                summary = get_entity_summary(network['client'], node['content'], neighbors, 'command', 0.3)
 
                 network['graph'].nodes[node_id]['summary'] = summary
                 network['graph'].nodes[node_id]['update'] = False
@@ -228,7 +205,7 @@ def index_network(network: Network, depth: int, verbose: bool = False) -> Networ
     network['deleted'] = []
     return network
 
-def search_network(network: Network, nl_query: str, limit: int, search_params: Optional[Dict] = None) -> List[Dict]:
+def search_network(network: Network, nl_query: Union[str, List[str]], limit: int, search_params: Optional[Dict] = None) -> List[Dict]:
     if search_params is None:
         search_params = {
             "metric_type": "L2",
@@ -236,5 +213,20 @@ def search_network(network: Network, nl_query: str, limit: int, search_params: O
         }
     vec = query_embed(network['client'], 'embed-english-light-v2.0', nl_query).tolist()
     results = network['milvus_info']['collection'].search(vec, "embeddings", search_params, limit=limit, output_fields=["id"])
-    ids = [network['id_map'][str(hit.id)] for hit in results[0]]
-    return [network['graph'].nodes[i] for i in ids]
+    hits = [list(res.ids) for res in results]
+    ids = [network['id_map'][str(hit)] for hit in reduce(lambda a, b: a + b, hits, [])]
+
+    # TODO: this is sloppy, fix this
+    out = [network['graph'].nodes[i] for i in ids]
+    for i, res_id in enumerate(ids):
+        out[i]['id'] = res_id
+    return out
+
+def run_synthesis(network: Network, limit: int, question: str, use_web: bool = False) -> str:
+    queries = get_search_queries(network['client'], 'command', question)
+    queries = [q['text'] for q in queries]
+
+    results = search_network(network, queries, limit)
+    documents = [{"id": str(r["id"]), "title": r["summary"], "snippet": r["content"], "url": r["file_path"]} for r in results]
+    response = query_chat(network['client'], 'command', question, sources=documents, use_web=use_web)
+    return response
