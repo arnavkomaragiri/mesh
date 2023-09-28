@@ -68,20 +68,25 @@ def query_summary(client: cohere.Client, model: str, temperature: float,
 
 def query_chat(client: cohere.Client, model: str, question: str, sources: List[Dict[str, str]] = [], 
                search_queries_only: bool = False, use_web: bool = False) -> cohere.responses.Chat:
-    connectors = []
     if use_web:
-        connectors = [{"id": "web-search"}]
-
-    response = client.chat( 
-        model=model,
-        message=question,
-        temperature=0.3,
-        prompt_truncation="auto",
-        documents=sources,
-        search_queries_only=search_queries_only,
-        connectors=connectors
-    ) 
-
+        response = client.chat( 
+            model=model,
+            message=question,
+            temperature=0.3,
+            prompt_truncation="auto",
+            search_queries_only=search_queries_only,
+            connectors=[{"id": "web-search"}]
+        )
+    else:
+        response = client.chat( 
+            model=model,
+            message=question,
+            temperature=0.3,
+            prompt_truncation="auto",
+            documents=sources,
+            search_queries_only=search_queries_only,
+            connectors = []
+        ) 
     return response
     
 def query_embed(client: cohere.Client, model: str, text: Union[str, List[str]]) -> np.array:

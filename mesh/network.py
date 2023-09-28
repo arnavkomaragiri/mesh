@@ -75,14 +75,16 @@ def open_network(api_key: str, path: str) -> Network:
     network['client'] = init_client(api_key)
     milvus_info = network['milvus_info']
     connections.connect(alias=milvus_info['alias'], host=milvus_info['host'], port=milvus_info['port']) 
-    if utility.has_collection(milvus_info['collection_str']):
-        network['milvus_info']['collection'] = Collection(milvus_info['collection_str'])
+    if utility.has_collection(milvus_info['collection_str'], using=milvus_info['alias']):
+        network['milvus_info']['collection'] = Collection(milvus_info['collection_str'], using=milvus_info['alias'])
     else:
         raise ValueError(f"attempted to load orphaned collection {milvus_info['collection_str']}, collection no longer exists")
 
     # rebuild local graph from node link data
     network['graph'] = nx.node_link_graph(network['graph'])
     for n in network['graph'].nodes:
+        if 'vec' not in network['graph'].nodes[n]:
+            continue
         network['graph'].nodes[n]['vec'] = np.array(network['graph'].nodes[n]['vec'])
 
     return network
@@ -101,6 +103,8 @@ def close_network(network: Network, out_path: str):
 
     # convert all numpy arrays to lists for JSON encoding
     for n in network['graph'].nodes:
+        if 'vec' not in network['graph'].nodes[n]:
+            continue
         if isinstance(network['graph'].nodes[n]['vec'], np.ndarray):
             network['graph'].nodes[n]['vec'] = network['graph'].nodes[n]['vec'].tolist()
 
@@ -138,6 +142,9 @@ def add_entity(network: Network, node_id: Union[str, int], content: str, connect
 
     network['graph'].nodes[node_id]['update'] = True
     return network
+
+def num_entities(network: Network) -> int:
+    return len(network['graph'].nodes)
 
 def add_edge(network: Network, a: Union[int, str], b: Union[int, str]) -> Network:
     if a not in network['graph'].nodes:
@@ -222,7 +229,7 @@ def search_network(network: Network, nl_query: Union[str, List[str]], limit: int
         out[i]['id'] = res_id
     return out
 
-def run_synthesis(network: Network, limit: int, question: str, use_web: bool = False) -> str:
+def run_synthesis(network: Network, limit: int, question: str, use_web: bool = False) -> cohere.responses.Chat:
     queries = get_search_queries(network['client'], 'command', question)
     queries = [q['text'] for q in queries]
 
