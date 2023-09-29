@@ -1,8 +1,7 @@
 import os
-import logging
 
 from .network import *
-from .handlers import *
+from .key_handlers import *
 
 MESHFILE_PATH = ".mesh/mesh.json"
 
@@ -44,6 +43,7 @@ def search(network: Network, query: str, limit: Optional[int] = None) -> List[Di
 
 def remove(network: Network, file_path: str):
     ids = find_id(network, file_path)
+    print(ids)
     for i in ids:
         network = remove_entity(network, i)
     return network

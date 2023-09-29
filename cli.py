@@ -54,6 +54,7 @@ def push(depth: Optional[int] = 0, verbose: Optional[bool] = False):
 
 @app.command()
 def remove(file_path: str):
+    file_path = os.path.abspath(file_path)
     network = network_cli.load()
     network = network_cli.remove(network, file_path)
     network_cli.close(network)

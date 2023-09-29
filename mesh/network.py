@@ -6,17 +6,9 @@ import numpy as np
 import networkx as nx
 
 from tqdm import tqdm
-from pymilvus import (
-    connections,
-    utility,
-    FieldSchema,
-    CollectionSchema,
-    DataType,
-    Collection,
-)
 
 from mesh.db_handlers import *
-from mesh.handlers.cohere_handler import *
+from mesh.model_handlers.cohere_handler import *
 from typing import Union, List, Dict
 
 Network = Dict[str, Union[Dict, np.array, nx.Graph]]
@@ -26,7 +18,7 @@ def get_entity_summary(client: cohere.Client, content: str, related: List[Dict],
     summarize_prompt = build_summarize_prompt(content, related_summaries) 
     if len(summarize_prompt) < 250:
         return summarize_prompt
-    return query_summary(client, model, content, temperature, related_summaries)
+    return query_summary(client, model, temperature, document=content, context=related_summaries)
 
 def init_network(api_key: str, host: str, port: int, db_type: str, path: str, dim: int, 
                  alias: str = "connection", collection_str: str = "data") -> Network:

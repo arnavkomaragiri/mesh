@@ -55,6 +55,7 @@ def query_summary(client: cohere.Client, model: str, temperature: float,
         raise ValueError("must provide either document or prebuilt summarize prompt to run summarization")
     elif summarize_prompt is None:
         summarize_prompt = build_summarize_prompt(document, context)
+    print(temperature)
 
     response = client.summarize(
         text=summarize_prompt,
