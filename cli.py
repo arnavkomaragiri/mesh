@@ -29,13 +29,17 @@ def read_file_content(file_path: str) -> str:
     return wrapped_content
 
 @app.command()
-def init(host: str, port: int, alias: str, collection_str: str):
-    network_cli.init(host, port, alias, collection_str)
+def init(host: str, port: int, db_type: str, collection_str: str, alias: str = "tmp"):
+    network_cli.init(host, port, db_type, collection_str, alias=alias)
 
 @app.command()
 def add(file_path: str, related: Optional[List[str]] = []):
     network = network_cli.load()
 
+    # convert filepath to absolute to avoid collision
+    file_path = os.path.abspath(file_path)
+
+    # wrap content and find related ids
     wrapped_content = read_file_content(file_path)
     ids = reduce(lambda a, b: a + b, [network_cli.find_id(network, r) for r in related], [])
 
@@ -53,6 +57,15 @@ def remove(file_path: str):
     network = network_cli.load()
     network = network_cli.remove(network, file_path)
     network_cli.close(network)
+
+@app.command()
+def erase():
+    response = input("WARNING: This is a permanent operation. Are you sure about this? (y or n): ")
+    if response.lower() == "y":
+        network = network_cli.load()
+        network_cli.erase(network)
+    else:
+        print("operation refused")
 
 @app.command()
 def search(query: str, k: Optional[int] = None):

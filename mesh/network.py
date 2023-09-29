@@ -15,8 +15,8 @@ from pymilvus import (
     Collection,
 )
 
+from mesh.db_handlers import *
 from mesh.handlers.cohere_handler import *
-from functools import reduce
 from typing import Union, List, Dict
 
 Network = Dict[str, Union[Dict, np.array, nx.Graph]]
@@ -28,42 +28,18 @@ def get_entity_summary(client: cohere.Client, content: str, related: List[Dict],
         return summarize_prompt
     return query_summary(client, model, content, temperature, related_summaries)
 
-def init_network(api_key: str, host: str, port: int, alias: str, dim: int, collection_str: str = "data") -> Network:
-    # connect to milvus and check if we're making a new collection
-    connections.connect(alias, host=host, port=port)
-    if utility.has_collection(collection_str, using=alias):
-        raise ValueError(f"collection {collection_str} already exists, cannot build network")
-
-    # build vector database schema
-    fields = [
-        FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=False),
-        FieldSchema(name="embeddings", dtype=DataType.FLOAT_VECTOR, dim=dim)
-    ]
-    schema = CollectionSchema(fields, "mesh vector database store")
-    collection = Collection(collection_str, schema, using=alias)
+def init_network(api_key: str, host: str, port: int, db_type: str, path: str, dim: int, 
+                 alias: str = "connection", collection_str: str = "data") -> Network:
+    db_dict = db_factory(db_type).create(host, port, alias, collection_str, dim).to_json(include_instance=True)
     
-    index_params = {
-        "index_type": "IVF_FLAT",
-        "metric_type": "L2",
-        "params": {"nlist": 128},
-    }
-    collection.create_index("embeddings", index_params=index_params)
-
     network = {
-        "milvus_info": {
-            "host": host,
-            "port": port,
-            "alias": alias,
-            "collection_str": collection_str, 
-            "collection": collection,
-        },
+        "db": db_dict,
+        "path": os.path.abspath(path),
         "client": init_client(api_key),
         "graph": nx.Graph(),
         "id_map": {},
         "deleted": [],
     }
-    # load collection
-    network['milvus_info']['collection'].load()
     return network
 
 def open_network(api_key: str, path: str) -> Network:
@@ -71,14 +47,9 @@ def open_network(api_key: str, path: str) -> Network:
     with open(path, 'r') as f:
         network = json.load(f)
     
-    # open cohere/milvus api 
+    # open cohere api/database
     network['client'] = init_client(api_key)
-    milvus_info = network['milvus_info']
-    connections.connect(alias=milvus_info['alias'], host=milvus_info['host'], port=milvus_info['port']) 
-    if utility.has_collection(milvus_info['collection_str'], using=milvus_info['alias']):
-        network['milvus_info']['collection'] = Collection(milvus_info['collection_str'], using=milvus_info['alias'])
-    else:
-        raise ValueError(f"attempted to load orphaned collection {milvus_info['collection_str']}, collection no longer exists")
+    network['db'] = db_factory(network['db']['db_type']).from_json(network['db'], return_dict=True)
 
     # rebuild local graph from node link data
     network['graph'] = nx.node_link_graph(network['graph'])
@@ -90,16 +61,17 @@ def open_network(api_key: str, path: str) -> Network:
     return network
 
 def delete_network(network: Network):
-    collection_name = network['milvus_info']['collection_str']
-    if not utility.has_collection(collection_name, using=network['milvus_info']['alias']):
-        raise ValueError(f"attempted to delete non-existent collection {collection_name}")
-    utility.drop_collection(collection_name, using=network['milvus_info']['alias'])
+    network['db']['db'].erase()
+    if not os.path.exists(network['path']) or not os.path.isfile(network['path']):
+        raise ValueError(f"internal network path {network['path']} does not exist, corrupted file")
+    os.remove(network['path'])
 
 def close_network(network: Network, out_path: str):
-    # close milvus/cohere connection
-    connections.disconnect(network['milvus_info']['alias'])
+    # close db/cohere connection
+    network['db']['db'].disconnect()
+
     del network['client']
-    del network['milvus_info']['collection']
+    network['db'] = network['db']['db'].to_json(include_instance=False)
 
     # convert all numpy arrays to lists for JSON encoding
     for n in network['graph'].nodes:
@@ -203,25 +175,16 @@ def index_network(network: Network, depth: int, verbose: bool = False) -> Networ
             queue[1] += neighbors
         queue = queue[1:]
 
-    expr = f"id in {ids + network['deleted']}"
-    network['milvus_info']['collection'].delete(expr)
-    if len(ids) != 0:
-        network['milvus_info']['collection'].insert([ids, vectors]) 
-        network['milvus_info']['collection'].flush()
-    network['milvus_info']['collection'].load()
+    network['db']['db'].delete(ids + network['deleted'])
+    if len(ids) > 0:
+        network['db']['db'].add(ids, vectors)
     network['deleted'] = []
     return network
 
 def search_network(network: Network, nl_query: Union[str, List[str]], limit: int, search_params: Optional[Dict] = None) -> List[Dict]:
-    if search_params is None:
-        search_params = {
-            "metric_type": "L2",
-            "params": {"nprobe": 10},
-        }
-    vec = query_embed(network['client'], 'embed-english-light-v2.0', nl_query).tolist()
-    results = network['milvus_info']['collection'].search(vec, "embeddings", search_params, limit=limit, output_fields=["id"])
-    hits = [list(res.ids) for res in results]
-    ids = [network['id_map'][str(hit)] for hit in reduce(lambda a, b: a + b, hits, [])]
+    vec = query_embed(network['client'], 'embed-english-light-v2.0', nl_query)
+    results = network['db']['db'].search(vec, limit, search_params=search_params)
+    ids = [network['id_map'][str(hit)] for hit in results if hit not in network['deleted']]
 
     # TODO: this is sloppy, fix this
     out = [network['graph'].nodes[i] for i in ids]
