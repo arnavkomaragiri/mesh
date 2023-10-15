@@ -5,10 +5,9 @@ from .key_handlers import *
 
 MESHFILE_PATH = ".mesh/mesh.json"
 
-def init(host: str, port: int, db_type: str, collection_str: str, alias: str = ""):
+def init(host: str, port: int, db_type: str, **kwargs):
     api_key = key_handler.get_key("COHERE_API_KEY")
-    network = init_network(api_key, host, port, db_type, MESHFILE_PATH, 1024, 
-                           collection_str=collection_str, alias=alias)
+    network = init_network(api_key, host, port, db_type, MESHFILE_PATH, 1024, **kwargs)
     close_network(network, MESHFILE_PATH)
 
 def load() -> Network:

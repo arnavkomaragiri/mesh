@@ -11,6 +11,11 @@ class VectorDB(ABC):
     @abstractclassmethod
     def disconnect(self):
         pass
+
+    @staticmethod
+    @abstractclassmethod
+    def create(host: str, port: int, dim: int, **kwargs):
+        pass
     
     @abstractclassmethod
     def search(self, vec: np.ndarray, k: int, **kwargs):

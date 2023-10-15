@@ -20,9 +20,8 @@ def get_entity_summary(client: cohere.Client, content: str, related: List[Dict],
         return summarize_prompt
     return query_summary(client, model, temperature, document=content, context=related_summaries)
 
-def init_network(api_key: str, host: str, port: int, db_type: str, path: str, dim: int, 
-                 alias: str = "connection", collection_str: str = "data") -> Network:
-    db_dict = db_factory(db_type).create(host, port, alias, collection_str, dim).to_json(include_instance=True)
+def init_network(api_key: str, host: str, port: int, db_type: str, path: str, dim: int, **kwargs) -> Network:
+    db_dict = db_factory(db_type).create(host, port, dim, **kwargs).to_json(include_instance=True)
     
     network = {
         "db": db_dict,

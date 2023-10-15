@@ -3,7 +3,7 @@ import typer
 
 from mesh import key_handler, network_cli
 from functools import reduce
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 
 api_key = key_handler.get_key("COHERE_API_KEY")
 app = typer.Typer()
@@ -28,9 +28,39 @@ def read_file_content(file_path: str) -> str:
     wrapped_content = wrapped_content.format(content=content)
     return wrapped_content
 
-@app.command()
-def init(host: str, port: int, db_type: str, collection_str: str, alias: str = "tmp"):
-    network_cli.init(host, port, db_type, collection_str, alias=alias)
+def get_args(ctx: typer.Context) -> Tuple[List, Dict]:
+    args, kwargs = [], {}
+    ctx_args, i = ctx.args, 1
+
+    if len(ctx_args) == 0:
+        return args, kwargs
+
+    while True:
+        prev_arg, curr_arg = ctx_args[i - 1], ctx_args[min(i, len(ctx_args) - 1)]
+        is_prev_key, is_curr_key = (prev_arg[:2] == "--"), (curr_arg[:2] == "--")
+        match (is_prev_key, is_curr_key):
+            case (True, True):
+                kwargs[prev_arg[2:]] = True
+                i += 1
+            case (True, False):
+                kwargs[prev_arg[2:]] = curr_arg
+                i += 2
+            case (False, True):
+                args += [prev_arg]
+                i += 1
+            case (False, False):
+                args += [prev_arg, curr_arg]
+                i += 2
+        if i > len(ctx_args):
+            break
+    return args, kwargs
+
+@app.command(
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
+)
+def init(host: str, port: int, db_type: str, ctx: typer.Context):
+    args, kwargs = get_args(ctx)
+    network_cli.init(host, port, db_type, *args, **kwargs)
 
 @app.command()
 def add(file_path: str, related: Optional[List[str]] = []):

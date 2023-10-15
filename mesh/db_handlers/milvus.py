@@ -34,7 +34,7 @@ class MilvusDB(VectorDB):
         return collection
 
     @staticmethod
-    def create(host: str, port: int, alias: str, collection_str: str, dim: int) -> VectorDB:
+    def create(host: str, port: int, dim: int, alias: str = "tmp", collection_str: str = "data") -> VectorDB:
         connections.connect(alias, host=host, port=port)
         if utility.has_collection(collection_str, using=alias):
             raise ValueError(f"collection {collection_str} already exists, cannot build vector database")
@@ -121,3 +121,8 @@ class MilvusDB(VectorDB):
 
         except Exception as e:
             raise ValueError(f"error parsing JSON representation: {e}")
+
+    @property
+    def num_vectors(self) -> int:
+        return self.collection.num_entities
+
