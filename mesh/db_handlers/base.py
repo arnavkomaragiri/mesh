@@ -4,11 +4,9 @@ from typing import Any, List, Union, Dict
 from abc import ABC, abstractclassmethod
 
 class VectorDB(ABC):
-    @abstractclassmethod
     def connect(self):
         pass
 
-    @abstractclassmethod
     def disconnect(self):
         pass
 

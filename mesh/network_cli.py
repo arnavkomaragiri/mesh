@@ -5,9 +5,9 @@ from .key_handlers import *
 
 MESHFILE_PATH = ".mesh/mesh.json"
 
-def init(host: str, port: int, db_type: str, **kwargs):
+def init(db_type: str, **kwargs):
     api_key = key_handler.get_key("COHERE_API_KEY")
-    network = init_network(api_key, host, port, db_type, MESHFILE_PATH, 1024, **kwargs)
+    network = init_network(api_key, db_type, MESHFILE_PATH, 1024, **kwargs)
     close_network(network, MESHFILE_PATH)
 
 def load() -> Network:
@@ -42,7 +42,6 @@ def search(network: Network, query: str, limit: Optional[int] = None) -> List[Di
 
 def remove(network: Network, file_path: str):
     ids = find_id(network, file_path)
-    print(ids)
     for i in ids:
         network = remove_entity(network, i)
     return network

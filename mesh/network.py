@@ -20,8 +20,8 @@ def get_entity_summary(client: cohere.Client, content: str, related: List[Dict],
         return summarize_prompt
     return query_summary(client, model, temperature, document=content, context=related_summaries)
 
-def init_network(api_key: str, host: str, port: int, db_type: str, path: str, dim: int, **kwargs) -> Network:
-    db_dict = db_factory(db_type).create(host, port, dim, **kwargs).to_json(include_instance=True)
+def init_network(api_key: str, db_type: str, path: str, dim: int, **kwargs) -> Network:
+    db_dict = db_factory(db_type).create(dim=dim, **kwargs).to_json(include_instance=True)
     
     network = {
         "db": db_dict,
@@ -37,7 +37,7 @@ def open_network(api_key: str, path: str) -> Network:
     # load data in from JSON
     with open(path, 'r') as f:
         network = json.load(f)
-    
+
     # open cohere api/database
     network['client'] = init_client(api_key)
     network['db'] = db_factory(network['db']['db_type']).from_json(network['db'], return_dict=True)
@@ -166,7 +166,8 @@ def index_network(network: Network, depth: int, verbose: bool = False) -> Networ
             queue[1] += neighbors
         queue = queue[1:]
 
-    network['db']['db'].delete(ids + network['deleted'])
+    replaced_ids = [i for i in ids if network['db']['db'].exists(ids[0])]
+    network['db']['db'].delete(replaced_ids + network['deleted'])
     if len(ids) > 0:
         network['db']['db'].add(ids, vectors)
     network['deleted'] = []
@@ -186,6 +187,8 @@ def search_network(network: Network, nl_query: Union[str, List[str]], limit: int
 def run_synthesis(network: Network, limit: int, question: str, use_web: bool = False) -> cohere.responses.Chat:
     queries = get_search_queries(network['client'], 'command', question)
     queries = [q['text'] for q in queries]
+    if len(queries) == 0:
+        queries = [question]
 
     results = search_network(network, queries, limit)
     documents = [{"id": str(r["id"]), "title": r["summary"], "snippet": r["content"], "url": r["file_path"]} for r in results]

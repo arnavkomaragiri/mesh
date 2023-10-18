@@ -58,9 +58,9 @@ def get_args(ctx: typer.Context) -> Tuple[List, Dict]:
 @app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
 )
-def init(host: str, port: int, db_type: str, ctx: typer.Context):
+def init(db_type: str, ctx: typer.Context):
     args, kwargs = get_args(ctx)
-    network_cli.init(host, port, db_type, *args, **kwargs)
+    network_cli.init(db_type, *args, **kwargs)
 
 @app.command()
 def add(file_path: str, related: Optional[List[str]] = []):
