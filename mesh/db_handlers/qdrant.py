@@ -2,7 +2,7 @@ import os
 import numpy as np
 
 from .base import *
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from functools import reduce
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, PointIdsList, SearchRequest, Filter, FieldCondition, MatchValue
@@ -81,7 +81,7 @@ class QdrantDB(VectorDB):
         # TODO: add check to make sure collection actually exists
         self.client.delete_collection(self.collection_str)
 
-    def search(self, vec: np.ndarray, k: int, **kwargs) -> List[int]:
+    def search(self, vec: np.ndarray, k: int, **kwargs) -> Tuple[List[int], List[float]]:
         assert len(vec.shape) == 2, f"vector search only supports 2d vector input, found shape {vec.shape}"
         requests = [
             SearchRequest(
@@ -94,7 +94,7 @@ class QdrantDB(VectorDB):
             requests=requests
         )
         flat_requests = [r for req in result for r in req]
-        return [f.id for f in flat_requests]
+        return [f.id for f in flat_requests], [f.score for f in flat_requests]
 
     def to_json(self, include_instance: bool = False):
         db_info = {

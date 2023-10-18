@@ -1,7 +1,7 @@
 import numpy as np
 
 from .base import *
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from functools import reduce
 from pymilvus import connections, utility, Collection, FieldSchema, CollectionSchema, DataType
 
@@ -75,7 +75,7 @@ class MilvusDB(VectorDB):
             raise ValueError(f"attempted to delete non-existent collection {self.colleciton_str}")
         utility.drop_collection(self.collection_str, using=self.alias)
 
-    def search(self, vec: np.ndarray, k: int, search_params: Optional[Dict] = None) -> List[int]:
+    def search(self, vec: np.ndarray, k: int, search_params: Optional[Dict] = None) -> Tuple[List[int], List[float]]:
         if search_params is None:
             search_params = {
                 "metric_type": "L2",
@@ -83,8 +83,10 @@ class MilvusDB(VectorDB):
             }
 
         results = self.collection.search(vec.tolist(), "embeddings", search_params, limit=k, output_fields=["id"])
-        hits = [list(res.ids) for res in results]
-        return list(reduce(lambda a, b: a + b, hits, []))
+        hits = [(list(res.ids), list(res.distances)) for res in results]
+        output = list(reduce(lambda a, b: a + b, hits, []))
+        output = list(zip(*output))
+        return output[0], output[1]
 
     def to_json(self, include_instance: bool = False):
         db_info = {
