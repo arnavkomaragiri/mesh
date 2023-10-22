@@ -35,10 +35,15 @@ def add(network: Network, content: str, related: List[Any] = [], file_path: str 
 def index(network: Network, depth: int = 0, verbose: bool = False) -> Network:
     return index_network(network, depth, verbose=verbose)
 
-def search(network: Network, query: str, limit: Optional[int] = None) -> List[Dict]:
+def search(network: Network, query: str, limit: Optional[int] = None, q: Optional[int] = None) -> Tuple[Network, List[Dict]]:
     if limit == None:
         limit = 3
-    return search_network(network, query, limit=limit)
+
+    update_edges = q is not None
+    if not update_edges:
+        q = 0
+
+    return search_network(network, query, limit=limit, update_edges=update_edges, q=q)
 
 def remove(network: Network, file_path: str):
     ids = find_id(network, file_path)
@@ -49,11 +54,16 @@ def remove(network: Network, file_path: str):
 def erase(network: Network):
     delete_network(network)
 
-def synthesize(network: Network, question: str, limit: Optional[int] = None, use_web: bool = False) -> str:
+def synthesize(network: Network, question: str, limit: Optional[int] = None, use_web: bool = False, q: Optional[int] = None) -> Tuple[Network, str]:
     if limit == None:
         limit = 3
-    response = run_synthesis(network, limit, question, use_web=use_web)
-    return response.text
+
+    update_edges = q is not None
+    if not update_edges:
+        q = 0
+
+    network, response = run_synthesis(network, limit, question, use_web=use_web, update_edges=update_edges, q=q)
+    return network, response.text
 
 def find_id(network: Network, file_path: str) -> List[Any]:
     return [i for i, d in network['graph'].nodes(data=True) if d['file_path'] == file_path]

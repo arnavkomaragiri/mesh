@@ -10,10 +10,9 @@ app = typer.Typer()
 
 def read_file_content(file_path: str) -> str:
     _, ext = os.path.splitext(file_path)
-    wrapped_content = "{content}"
     match ext:
         case ".txt":
-            pass
+            wrapped_content = "{content}"
         case ".md":
             wrapped_content = "```markdown\n{content}\n```"
         case ".py":
@@ -99,9 +98,9 @@ def erase():
         print("operation refused")
 
 @app.command()
-def search(query: str, k: Optional[int] = None):
+def search(query: str, k: Optional[int] = None, q: Optional[int] = None):
     network = network_cli.load()
-    results = network_cli.search(network, query, k)
+    network, results = network_cli.search(network, query, limit=k, q=q)
     if len(results) == 0:
         print("No Search Results Found")
         return
@@ -111,12 +110,13 @@ def search(query: str, k: Optional[int] = None):
         print(f"Document Filepath: {result['file_path']}")
         print(f"Document Summary:\n{result['summary']}")
         print(f"Document Content:\n{result['content']}")
+    network_cli.close(network)
 
 @app.command()
-def synthesize(question: str, num_sources: Optional[int] = None, use_web: bool = False):
+def synthesize(question: str, num_sources: Optional[int] = None, use_web: bool = False, q: Optional[int] = None):
     network = network_cli.load()
-    response = network_cli.synthesize(network, question, limit=num_sources, use_web=use_web)
-    print("Mesh Response: ")
+    network, response = network_cli.synthesize(network, question, limit=num_sources, use_web=use_web, q=q)
+    print("Mesh Response:")
     print(response)
     network_cli.close(network)
 

@@ -197,9 +197,12 @@ def index_network(network: Network, depth: int, verbose: bool = False) -> Networ
     return network
 
 def rewire(network: Network, ret_ids: List[Any], ret_scores: List[float], q: int = 3) -> Network:
+    # get best results from search
     idx = np.argsort(ret_scores)[::-1][:q + 1]
+    # find top-q pairs to create associations between
     top_id = ret_ids[idx[0]]
     pairs = [(ret_ids[i], top_id) for i in idx[1:]]
+    # either introduce new connections or reinforce existing ones for each pair
     for leaf, source in pairs:
         node_count = network['graph'].nodes[leaf]['count']
         if network['graph'].has_edge(leaf, source) and network['graph'][leaf][source]['dynamic']:
@@ -207,11 +210,13 @@ def rewire(network: Network, ret_ids: List[Any], ret_scores: List[float], q: int
 
             network['graph'][leaf][source]['count'] = edge_count + 1
             network['graph'].nodes[leaf]['count'] = node_count + 1
+            print(f"amplified {leaf}->{source} edge by 1")
         else:
-            network['graph'].add_edge(leaf, source, count=1)
+            network['graph'].add_edge(leaf, source, count=1, dynamic=True)
     return network
 
-def search_network(network: Network, nl_query: Union[str, List[str]], limit: int, search_params: Optional[Dict] = None, update_edges: bool = False) -> List[Dict]:
+def search_network(network: Network, nl_query: Union[str, List[str]], limit: int, search_params: Optional[Dict] = None, 
+                   update_edges: bool = False, q: int = 3) -> Tuple[Network, List[Dict]]:
     vec = query_embed(network['client'], 'embed-english-light-v2.0', nl_query)
     results, scores = network['db']['db'].search(vec, limit, search_params=search_params)
 
@@ -219,22 +224,25 @@ def search_network(network: Network, nl_query: Union[str, List[str]], limit: int
     ids = [network['id_map'][str(hit)] for hit in results if hit not in network['deleted']]
     scores = [scores[i] for i in idxs] 
 
+    if update_edges:
+        network = rewire(network, ids, scores, q=q)
+
     # TODO: this is sloppy, fix this
     out = [network['graph'].nodes[i] for i in ids]
     for i, res_id in enumerate(ids):
         out[i]['id'] = res_id
-    return out
+    return network, out
 
-def run_synthesis(network: Network, limit: int, question: str, use_web: bool = False) -> cohere.responses.Chat:
+def run_synthesis(network: Network, limit: int, question: str, use_web: bool = False, update_edges: bool = False, q: int = 0) -> Tuple[Network, cohere.responses.Chat]:
     queries = get_search_queries(network['client'], 'command', question)
     queries = [q['text'] for q in queries]
     if len(queries) == 0:
         queries = [question]
 
-    results = search_network(network, queries, limit)
+    network, results = search_network(network, queries, limit, update_edges=update_edges, q=q)
     raw_documents = [{"id": str(r["id"]), "title": r["summary"], "snippet": r["content"], "url": r["file_path"]} for r in results]
     ids = [d['id'] for d in raw_documents]
     _, uidxs = np.unique(ids, return_index=True)
     documents = [raw_documents[i] for i in uidxs]
     response = query_chat(network['client'], 'command', question, sources=documents, use_web=use_web)
-    return response
+    return network, response
